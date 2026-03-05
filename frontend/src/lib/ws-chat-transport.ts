@@ -2,8 +2,8 @@
  * Custom ChatTransport that bridges our WebSocket-based backend protocol
  * to the Vercel AI SDK's UIMessageChunk streaming interface.
  *
- * The backend stays unchanged — this adapter translates WebSocket events
- * into the chunk types that useChat() expects.
+ * Each instance manages a single session's WebSocket connection.
+ * In the per-session architecture, every session owns its own transport.
  */
 import type { ChatTransport, UIMessage, UIMessageChunk, ChatRequestOptions } from 'ai';
 import { apiFetch, getWebSocketUrl } from '@/utils/api';
@@ -66,9 +66,6 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
   private currentSessionId: string | null = null;
   private sideChannel: SideChannelCallbacks;
 
-  /** Background WebSockets kept alive so the backend agent keeps running. */
-  private backgroundSockets: Map<string, WebSocket> = new Map();
-
   private streamController: ReadableStreamDefaultController<UIMessageChunk> | null = null;
   private streamGeneration = 0;
   private abortedGeneration = 0;
@@ -81,7 +78,6 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
   private retries = 0;
   private pingInterval: ReturnType<typeof setInterval> | null = null;
   private boundVisibilityHandler: (() => void) | null = null;
-  private wasHidden = false;
 
   constructor({ sideChannel }: WebSocketChatTransportOptions) {
     this.sideChannel = sideChannel;
@@ -91,7 +87,6 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
   private setupVisibilityHandler(): void {
     this.boundVisibilityHandler = () => {
       if (document.visibilityState === 'hidden') {
-        this.wasHidden = true;
         return;
       }
 
@@ -102,30 +97,25 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
           this.retries = 0;
           this.reconnectDelay = WS_RECONNECT_DELAY;
           this.createWebSocket(this.currentSessionId);
-
-          if (this.wasHidden) {
-            const store = useAgentStore.getState();
-            if (store.isProcessing) {
-              logger.log('Tab visible after WS drop: resetting stale processing state');
-              store.setProcessing(false);
-              this.closeActiveStream();
-            }
-          }
         } else if (wsState === WebSocket.OPEN) {
           this.ws!.send(JSON.stringify({ type: 'ping' }));
         }
-        this.wasHidden = false;
       }
     };
     document.addEventListener('visibilitychange', this.boundVisibilityHandler);
   }
 
-  /** Update side-channel callbacks (e.g. when sessionId changes). */
+  /** Update side-channel callbacks (e.g. when isActive changes). */
   updateSideChannel(sideChannel: SideChannelCallbacks): void {
     this.sideChannel = sideChannel;
   }
 
-  // ── Public API ──────────────────────────────────────────────────────
+  /** Check if the WebSocket is currently connected. */
+  isWebSocketConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  // -- Public API ----------------------------------------------------------
 
   /** Connect (or reconnect) to a session's WebSocket. */
   connectToSession(sessionId: string | null): void {
@@ -134,55 +124,15 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
       this.connectTimeout = null;
     }
 
-    // Move current WS to background instead of closing it
-    if (this.ws && this.currentSessionId && this.currentSessionId !== sessionId) {
-      const oldId = this.currentSessionId;
-      const oldWs = this.ws;
-      this.backgroundSockets.set(oldId, oldWs);
-      // Replace handler: background sockets only need ping/pong
-      oldWs.onmessage = (evt) => {
-        try {
-          const raw = JSON.parse(evt.data);
-          if (raw.type === 'pong') return;
-          // Silently discard — backend keeps running, we'll load results from localStorage
-        } catch { /* ignore */ }
-      };
-      oldWs.onclose = () => {
-        this.backgroundSockets.delete(oldId);
-      };
-      this.ws = null;
-      this.stopPing();
-    } else {
-      this.disconnectWebSocket();
+    // Same session — no-op
+    if (sessionId === this.currentSessionId && this.ws?.readyState === WebSocket.OPEN) {
+      return;
     }
 
+    this.disconnectWebSocket();
     this.currentSessionId = sessionId;
-    if (sessionId) {
-      // Promote background socket if one exists for this session
-      const bg = this.backgroundSockets.get(sessionId);
-      if (bg && (bg.readyState === WebSocket.OPEN || bg.readyState === WebSocket.CONNECTING)) {
-        this.backgroundSockets.delete(sessionId);
-        this.ws = bg;
-        // Restore full event handling
-        bg.onmessage = (evt) => {
-          try {
-            const raw = JSON.parse(evt.data);
-            if (raw.type === 'pong') return;
-            this.handleEvent(raw as AgentEvent);
-          } catch (e) {
-            logger.error('WS parse error:', e);
-          }
-        };
-        bg.onclose = (evt) => {
-          logger.log('WS closed', evt.code, evt.reason);
-          this.sideChannel.onConnectionChange(false);
-          this.stopPing();
-        };
-        this.sideChannel.onConnectionChange(true);
-        this.startPing();
-        return;
-      }
 
+    if (sessionId) {
       this.retries = 0;
       this.reconnectDelay = WS_RECONNECT_DELAY;
       this.connectTimeout = setTimeout(() => {
@@ -221,14 +171,11 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
       document.removeEventListener('visibilitychange', this.boundVisibilityHandler);
       this.boundVisibilityHandler = null;
     }
-    // Close all background sockets
-    for (const ws of this.backgroundSockets.values()) ws.close();
-    this.backgroundSockets.clear();
     this.disconnectWebSocket();
     this.closeActiveStream();
   }
 
-  // ── ChatTransport interface ─────────────────────────────────────────
+  // -- ChatTransport interface ---------------------------------------------
 
   async sendMessages(
     options: {
@@ -322,7 +269,7 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
     );
   }
 
-  // ── WebSocket lifecycle ─────────────────────────────────────────────
+  // -- WebSocket lifecycle -------------------------------------------------
 
   private createWebSocket(sessionId: string): void {
     if (this.ws?.readyState === WebSocket.OPEN || this.ws?.readyState === WebSocket.CONNECTING) {
@@ -409,7 +356,7 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
     }
   }
 
-  // ── Stream helpers ──────────────────────────────────────────────────
+  // -- Stream helpers ------------------------------------------------------
 
   private closeActiveStream(): void {
     if (this.streamController) {
@@ -438,7 +385,7 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
     }
   }
 
-  // ── Event → UIMessageChunk mapping ──────────────────────────────────
+  // -- Event -> UIMessageChunk mapping ------------------------------------
 
   private static readonly STREAM_EVENTS = new Set([
     'assistant_chunk', 'assistant_stream_end', 'assistant_message',
@@ -454,7 +401,7 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
     }
 
     switch (event.event_type) {
-      // ── Side-channel only events ────────────────────────────────
+      // -- Side-channel only events ----------------------------------------
       case 'ready':
         this.sideChannel.onReady();
         break;
@@ -465,10 +412,6 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
         break;
 
       case 'interrupted':
-        // Don't close the stream here — the abort handler already did, and
-        // a new stream for the next user message may already exist.
-        // Closing here would destroy the NEWER stream, causing the next
-        // response to be silently dropped.
         this.sideChannel.onProcessingDone();
         break;
 
@@ -498,7 +441,7 @@ export class WebSocketChatTransport implements ChatTransport<UIMessage> {
         );
         break;
 
-      // ── Chat stream events ──────────────────────────────────────
+      // -- Chat stream events ----------------------------------------------
       case 'processing':
         if (this.awaitingProcessing) {
           if (this.streamGeneration <= this.abortedGeneration) {

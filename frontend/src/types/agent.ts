@@ -15,6 +15,7 @@ export interface SessionMeta {
   title: string;
   createdAt: string;
   isActive: boolean;
+  needsAttention: boolean;
 }
 
 export interface ToolApproval {

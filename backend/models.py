@@ -61,6 +61,14 @@ class SessionResponse(BaseModel):
     ready: bool = True
 
 
+class PendingApprovalTool(BaseModel):
+    """A tool waiting for user approval."""
+
+    tool: str
+    tool_call_id: str
+    arguments: dict[str, Any] = {}
+
+
 class SessionInfo(BaseModel):
     """Session metadata."""
 
@@ -69,6 +77,7 @@ class SessionInfo(BaseModel):
     is_active: bool
     message_count: int
     user_id: str = "dev"
+    pending_approval: list[PendingApprovalTool] | None = None
 
 
 class HealthResponse(BaseModel):

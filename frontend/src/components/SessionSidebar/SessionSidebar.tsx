@@ -16,7 +16,6 @@ import { apiFetch } from '@/utils/api';
 
 interface SessionSidebarProps {
   onClose?: () => void;
-  onBeforeSwitch?: () => void;
 }
 
 /** Small coloured dot for connection status */
@@ -33,7 +32,7 @@ const StatusDot = ({ connected }: { connected: boolean }) => (
   />
 );
 
-export default function SessionSidebar({ onClose, onBeforeSwitch }: SessionSidebarProps) {
+export default function SessionSidebar({ onClose }: SessionSidebarProps) {
   const { sessions, activeSessionId, createSession, deleteSession, switchSession } =
     useSessionStore();
   const { isConnected, setPlan, clearPanel } =
@@ -41,11 +40,10 @@ export default function SessionSidebar({ onClose, onBeforeSwitch }: SessionSideb
   const [isCreatingSession, setIsCreatingSession] = useState(false);
   const [capacityError, setCapacityError] = useState<string | null>(null);
 
-  // ── Handlers ──────────────────────────────────────────────────────
+  // -- Handlers -----------------------------------------------------------
 
   const handleNewSession = useCallback(async () => {
     if (isCreatingSession) return;
-    onBeforeSwitch?.();
     setIsCreatingSession(true);
     setCapacityError(null);
     try {
@@ -65,7 +63,7 @@ export default function SessionSidebar({ onClose, onBeforeSwitch }: SessionSideb
     } finally {
       setIsCreatingSession(false);
     }
-  }, [isCreatingSession, onBeforeSwitch, createSession, setPlan, clearPanel, onClose]);
+  }, [isCreatingSession, createSession, setPlan, clearPanel, onClose]);
 
   const handleDelete = useCallback(
     async (sessionId: string, e: React.MouseEvent) => {
@@ -74,7 +72,6 @@ export default function SessionSidebar({ onClose, onBeforeSwitch }: SessionSideb
         await apiFetch(`/api/session/${sessionId}`, { method: 'DELETE' });
         deleteSession(sessionId);
       } catch {
-        // Delete locally even if backend fails (session may already be gone)
         deleteSession(sessionId);
       }
     },
@@ -83,19 +80,18 @@ export default function SessionSidebar({ onClose, onBeforeSwitch }: SessionSideb
 
   const handleSelect = useCallback(
     (sessionId: string) => {
-      onBeforeSwitch?.();
       switchSession(sessionId);
       setPlan([]);
       clearPanel();
       onClose?.();
     },
-    [onBeforeSwitch, switchSession, setPlan, clearPanel, onClose],
+    [switchSession, setPlan, clearPanel, onClose],
   );
 
   const formatTime = (d: string) =>
     new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
-  // ── Render ────────────────────────────────────────────────────────
+  // -- Render -------------------------------------------------------------
 
   return (
     <Box
@@ -106,7 +102,7 @@ export default function SessionSidebar({ onClose, onBeforeSwitch }: SessionSideb
         bgcolor: 'var(--panel)',
       }}
     >
-      {/* ── Header ─────────────────────────────────────────────────── */}
+      {/* -- Header -------------------------------------------------------- */}
       <Box sx={{ px: 1.75, pt: 2, pb: 0 }}>
         <Typography
           variant="caption"
@@ -122,7 +118,7 @@ export default function SessionSidebar({ onClose, onBeforeSwitch }: SessionSideb
         </Typography>
       </Box>
 
-      {/* ── Capacity error ─────────────────────────────────────────── */}
+      {/* -- Capacity error ------------------------------------------------ */}
       {capacityError && (
         <Alert
           severity="warning"
@@ -141,13 +137,12 @@ export default function SessionSidebar({ onClose, onBeforeSwitch }: SessionSideb
         </Alert>
       )}
 
-      {/* ── Session list ───────────────────────────────────────────── */}
+      {/* -- Session list -------------------------------------------------- */}
       <Box
         sx={{
           flex: 1,
           overflow: 'auto',
           py: 1,
-          // Thinner scrollbar
           '&::-webkit-scrollbar': { width: 4 },
           '&::-webkit-scrollbar-thumb': {
             bgcolor: 'var(--scrollbar-thumb)',
@@ -253,6 +248,24 @@ export default function SessionSidebar({ onClose, onBeforeSwitch }: SessionSideb
                   </Typography>
                 </Box>
 
+                {/* Attention badge — pulsing dot when background session needs approval */}
+                {session.needsAttention && !isSelected && (
+                  <Box
+                    sx={{
+                      width: 8,
+                      height: 8,
+                      borderRadius: '50%',
+                      bgcolor: 'var(--accent-yellow)',
+                      flexShrink: 0,
+                      animation: 'pulse 2s ease-in-out infinite',
+                      '@keyframes pulse': {
+                        '0%, 100%': { opacity: 1, transform: 'scale(1)' },
+                        '50%': { opacity: 0.5, transform: 'scale(0.8)' },
+                      },
+                    }}
+                  />
+                )}
+
                 <IconButton
                   className="delete-btn"
                   size="small"
@@ -273,7 +286,7 @@ export default function SessionSidebar({ onClose, onBeforeSwitch }: SessionSideb
         )}
       </Box>
 
-      {/* ── Footer: New Task + status ──────────────────────────── */}
+      {/* -- Footer: New Task + status ------------------------------------- */}
       <Divider sx={{ opacity: 0.5 }} />
       <Box
         sx={{

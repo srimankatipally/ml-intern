@@ -1,7 +1,11 @@
 /**
  * Central hook wiring the Vercel AI SDK's useChat with our custom
- * WebSocketChatTransport. Replaces the old useAgentWebSocket + agentStore
- * message management.
+ * WebSocketChatTransport.
+ *
+ * In the per-session architecture, each session mounts its own instance
+ * of this hook. The `isActive` flag controls whether side-channel
+ * callbacks update the global UI stores (agentStore / layoutStore) or
+ * only per-session metadata (sessionStore.needsAttention).
  */
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useChat } from '@ai-sdk/react';
@@ -16,15 +20,19 @@ import { useLayoutStore } from '@/store/layoutStore';
 import { logger } from '@/utils/logger';
 
 interface UseAgentChatOptions {
-  sessionId: string | null;
+  sessionId: string;
+  isActive: boolean;
   onReady?: () => void;
   onError?: (error: string) => void;
   onSessionDead?: (sessionId: string) => void;
 }
 
-export function useAgentChat({ sessionId, onReady, onError, onSessionDead }: UseAgentChatOptions) {
+export function useAgentChat({ sessionId, isActive, onReady, onError, onSessionDead }: UseAgentChatOptions) {
   const callbacksRef = useRef({ onReady, onError, onSessionDead });
   callbacksRef.current = { onReady, onError, onSessionDead };
+
+  const isActiveRef = useRef(isActive);
+  isActiveRef.current = isActive;
 
   const {
     setProcessing,
@@ -36,35 +44,46 @@ export function useAgentChat({ sessionId, onReady, onError, onSessionDead }: Use
   } = useAgentStore();
 
   const { setRightPanelOpen, setLeftSidebarOpen } = useLayoutStore();
-  const { setSessionActive } = useSessionStore();
+  const { setSessionActive, setNeedsAttention } = useSessionStore();
 
-  // ── Build side-channel callbacks (stable ref) ────────────────────
+  // -- Build side-channel callbacks (stable ref) --------------------------
+  // These check isActiveRef to decide whether to update global UI state.
   const sideChannel = useMemo<SideChannelCallbacks>(
     () => ({
       onReady: () => {
-        setConnected(true);
-        setProcessing(false);
-        if (sessionId) setSessionActive(sessionId, true);
+        if (isActiveRef.current) {
+          setConnected(true);
+          setProcessing(false);
+        }
+        setSessionActive(sessionId, true);
         callbacksRef.current.onReady?.();
       },
       onShutdown: () => {
-        setConnected(false);
-        setProcessing(false);
+        if (isActiveRef.current) {
+          setConnected(false);
+          setProcessing(false);
+        }
       },
       onError: (error: string) => {
-        setError(error);
-        setProcessing(false);
+        if (isActiveRef.current) {
+          setError(error);
+          setProcessing(false);
+        }
         callbacksRef.current.onError?.(error);
       },
       onProcessing: () => {
-        setProcessing(true);
-        setActivityStatus({ type: 'thinking' });
+        if (isActiveRef.current) {
+          setProcessing(true);
+          setActivityStatus({ type: 'thinking' });
+        }
       },
       onProcessingDone: () => {
-        setProcessing(false);
+        if (isActiveRef.current) {
+          setProcessing(false);
+        }
       },
       onUndoComplete: () => {
-        setProcessing(false);
+        if (isActiveRef.current) setProcessing(false);
         // Remove the last turn (user msg + assistant response) from useChat state
         const setMsgs = chatActionsRef.current.setMessages;
         const msgs = chatActionsRef.current.messages;
@@ -75,19 +94,21 @@ export function useAgentChat({ sessionId, onReady, onError, onSessionDead }: Use
           }
           const updated = lastUserIdx > 0 ? msgs.slice(0, lastUserIdx) : [];
           setMsgs(updated);
-          if (sessionId) saveMessages(sessionId, updated);
+          saveMessages(sessionId, updated);
         }
       },
       onCompacted: (oldTokens: number, newTokens: number) => {
-        logger.log(`Context compacted: ${oldTokens} → ${newTokens} tokens`);
+        logger.log(`Context compacted: ${oldTokens} -> ${newTokens} tokens`);
       },
       onPlanUpdate: (plan) => {
+        if (!isActiveRef.current) return;
         useAgentStore.getState().setPlan(plan as Array<{ id: string; content: string; status: 'pending' | 'in_progress' | 'completed' }>);
         if (!useLayoutStore.getState().isRightPanelOpen) {
           setRightPanelOpen(true);
         }
       },
       onToolLog: (tool: string, log: string) => {
+        if (!isActiveRef.current) return;
         if (tool === 'hf_jobs') {
           const state = useAgentStore.getState();
           const existingOutput = state.panelData?.output?.content || '';
@@ -103,7 +124,7 @@ export function useAgentChat({ sessionId, onReady, onError, onSessionDead }: Use
         }
       },
       onConnectionChange: (connected: boolean) => {
-        setConnected(connected);
+        if (isActiveRef.current) setConnected(connected);
       },
       onSessionDead: (deadSessionId: string) => {
         logger.warn(`Session ${deadSessionId} dead, removing`);
@@ -111,6 +132,13 @@ export function useAgentChat({ sessionId, onReady, onError, onSessionDead }: Use
       },
       onApprovalRequired: (tools) => {
         if (!tools.length) return;
+
+        // Always mark the session as needing attention
+        setNeedsAttention(sessionId, true);
+
+        // Only update global UI if this is the active session
+        if (!isActiveRef.current) return;
+
         setActivityStatus({ type: 'waiting-approval' });
         const firstTool = tools[0];
         const args = firstTool.arguments as Record<string, string | undefined>;
@@ -139,6 +167,7 @@ export function useAgentChat({ sessionId, onReady, onError, onSessionDead }: Use
         setLeftSidebarOpen(false);
       },
       onToolCallPanel: (toolName: string, args: Record<string, unknown>) => {
+        if (!isActiveRef.current) return;
         if (toolName === 'hf_jobs' && args.operation && args.script) {
           setPanel(
             { title: 'Script', script: { content: String(args.script), language: 'python' }, parameters: args },
@@ -157,35 +186,36 @@ export function useAgentChat({ sessionId, onReady, onError, onSessionDead }: Use
         }
       },
       onToolOutputPanel: (toolName: string, _toolCallId: string, output: string, success: boolean) => {
+        if (!isActiveRef.current) return;
         if (toolName === 'hf_jobs' && output) {
           setPanelOutput({ content: output, language: 'markdown' });
           if (!success) useAgentStore.getState().setPanelView('output');
         }
       },
       onStreaming: () => {
-        setActivityStatus({ type: 'streaming' });
+        if (isActiveRef.current) setActivityStatus({ type: 'streaming' });
       },
       onToolRunning: (toolName: string) => {
-        setActivityStatus({ type: 'tool', toolName });
+        if (isActiveRef.current) setActivityStatus({ type: 'tool', toolName });
       },
     }),
-    // Zustand setters are stable
+    // sessionId is the only real dependency — Zustand setters are stable
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [sessionId],
   );
 
-  // ── Create transport (single stable instance for the lifetime of this hook) ──
+  // -- Create transport (one per session, stable for lifetime) ------------
   const transportRef = useRef<WebSocketChatTransport | null>(null);
   if (!transportRef.current) {
     transportRef.current = new WebSocketChatTransport({ sideChannel });
   }
 
-  // Keep side-channel callbacks in sync (they capture sessionId)
+  // Keep side-channel callbacks in sync (they capture isActiveRef)
   useEffect(() => {
     transportRef.current?.updateSideChannel(sideChannel);
   }, [sideChannel]);
 
-  // Connect / disconnect WebSocket when session changes
+  // Connect WebSocket on mount, disconnect on unmount
   useEffect(() => {
     transportRef.current?.connectToSession(sessionId);
     return () => {
@@ -193,28 +223,38 @@ export function useAgentChat({ sessionId, onReady, onError, onSessionDead }: Use
     };
   }, [sessionId]);
 
-  // ── Restore persisted messages for this session ─────────────────
+  // Destroy transport on unmount
+  useEffect(() => {
+    return () => {
+      transportRef.current?.destroy();
+      transportRef.current = null;
+    };
+  }, []);
+
+  // -- Restore persisted messages for this session ------------------------
   const initialMessages = useMemo(
-    () => (sessionId ? loadMessages(sessionId) : []),
+    () => loadMessages(sessionId),
     [sessionId],
   );
 
-  // ── Ref for chat actions (used by sideChannel callbacks created before chat) ──
+  // -- Ref for chat actions (used by sideChannel callbacks) ---------------
   const chatActionsRef = useRef<{
     setMessages: ((msgs: UIMessage[]) => void) | null;
     messages: UIMessage[];
   }>({ setMessages: null, messages: [] });
 
-  // ── useChat from Vercel AI SDK ───────────────────────────────────
+  // -- useChat from Vercel AI SDK -----------------------------------------
   const chat = useChat({
-    id: sessionId || '__no_session__',
+    id: sessionId,
     messages: initialMessages,
     transport: transportRef.current!,
     experimental_throttle: 80,
     onError: (error) => {
       logger.error('useChat error:', error);
-      setError(error.message);
-      setProcessing(false);
+      if (isActiveRef.current) {
+        setError(error.message);
+        setProcessing(false);
+      }
     },
   });
 
@@ -222,74 +262,86 @@ export function useAgentChat({ sessionId, onReady, onError, onSessionDead }: Use
   chatActionsRef.current.setMessages = chat.setMessages;
   chatActionsRef.current.messages = chat.messages;
 
-  // ── Hydrate from backend when switching to a session ──────────────
+  // -- Hydrate from backend on mount (page refresh recovery) --------------
   useEffect(() => {
-    if (!sessionId) return;
     let cancelled = false;
-    apiFetch(`/api/session/${sessionId}/messages`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (cancelled || !data || !Array.isArray(data) || data.length === 0) return;
-        const uiMsgs = llmMessagesToUIMessages(data);
-        if (uiMsgs.length > 0) {
-          chat.setMessages(uiMsgs);
-          saveMessages(sessionId, uiMsgs);
+    (async () => {
+      try {
+        // Fetch messages and session info (for pending approval) in parallel
+        const [msgsRes, infoRes] = await Promise.all([
+          apiFetch(`/api/session/${sessionId}/messages`),
+          apiFetch(`/api/session/${sessionId}`),
+        ]);
+
+        if (cancelled) return;
+
+        // Extract pending approval tool IDs from session info
+        let pendingIds: Set<string> | undefined;
+        if (infoRes.ok) {
+          const info = await infoRes.json();
+          if (info.pending_approval && Array.isArray(info.pending_approval)) {
+            pendingIds = new Set(
+              info.pending_approval.map((t: { tool_call_id: string }) => t.tool_call_id)
+            );
+            if (pendingIds.size > 0) {
+              setNeedsAttention(sessionId, true);
+            }
+          }
         }
-      })
-      .catch(() => { /* backend unreachable — localStorage fallback is fine */ });
+
+        if (msgsRes.ok) {
+          const data = await msgsRes.json();
+          if (cancelled || !Array.isArray(data) || data.length === 0) return;
+          const uiMsgs = llmMessagesToUIMessages(data, pendingIds);
+          if (uiMsgs.length > 0) {
+            chat.setMessages(uiMsgs);
+            saveMessages(sessionId, uiMsgs);
+          }
+        }
+      } catch {
+        /* backend unreachable -- localStorage fallback is fine */
+      }
+    })();
     return () => { cancelled = true; };
   }, [sessionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Persist messages ──────────────────────────────────────────────
-  const flushRef = useRef<{ sid: string | null; msgs: UIMessage[] }>({ sid: null, msgs: [] });
-  flushRef.current.sid = sessionId;
-  flushRef.current.msgs = chat.messages;
-
-  // Save whenever message count changes (covers user sends + new assistant msgs)
+  // -- Persist messages ---------------------------------------------------
   const prevLenRef = useRef(initialMessages.length);
   useEffect(() => {
-    if (!sessionId || chat.messages.length === 0) return;
+    if (chat.messages.length === 0) return;
     if (chat.messages.length !== prevLenRef.current) {
       prevLenRef.current = chat.messages.length;
       saveMessages(sessionId, chat.messages);
     }
   }, [sessionId, chat.messages]);
 
-  // ── Undo last turn (calls backend + syncs useChat + localStorage) ──
+  // -- Undo last turn -----------------------------------------------------
   const undoLastTurn = useCallback(async () => {
-    if (!sessionId) return;
     try {
       const res = await apiFetch(`/api/undo/${sessionId}`, { method: 'POST' });
       if (!res.ok) {
         logger.error('Undo API returned', res.status);
-        return;
       }
     } catch (e) {
       logger.error('Undo failed:', e);
     }
-    // Backend will also send undo_complete, but we apply optimistically
-    // so the UI updates immediately.
   }, [sessionId]);
 
-  // ── Convenience: approve tools via transport ─────────────────────
+  // -- Approve tools via transport ----------------------------------------
   const approveTools = useCallback(
     async (approvals: Array<{ tool_call_id: string; approved: boolean; feedback?: string | null; edited_script?: string | null }>) => {
-      if (!sessionId || !transportRef.current) return false;
+      if (!transportRef.current) return false;
       const ok = await transportRef.current.approveTools(sessionId, approvals);
       if (ok) {
+        // Clear needsAttention since user has responded
+        setNeedsAttention(sessionId, false);
         const hasApproved = approvals.some(a => a.approved);
-        if (hasApproved) setProcessing(true);
+        if (hasApproved && isActiveRef.current) setProcessing(true);
       }
       return ok;
     },
-    [sessionId, setProcessing],
+    [sessionId, setProcessing, setNeedsAttention],
   );
-
-  // ── Flush current messages to localStorage (call before switching sessions) ──
-  const flushMessages = useCallback(() => {
-    const { sid, msgs } = flushRef.current;
-    if (sid && msgs.length > 0) saveMessages(sid, msgs);
-  }, []);
 
   return {
     messages: chat.messages,
@@ -298,7 +350,6 @@ export function useAgentChat({ sessionId, onReady, onError, onSessionDead }: Use
     status: chat.status,
     undoLastTurn,
     approveTools,
-    flushMessages,
     transport: transportRef.current,
   };
 }

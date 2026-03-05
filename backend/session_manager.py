@@ -344,12 +344,30 @@ class SessionManager:
         if not agent_session:
             return None
 
+        # Extract pending approval tools if any
+        pending_approval = None
+        pa = agent_session.session.pending_approval
+        if pa and pa.get("tool_calls"):
+            pending_approval = []
+            for tc in pa["tool_calls"]:
+                import json
+                try:
+                    args = json.loads(tc.function.arguments)
+                except (json.JSONDecodeError, AttributeError):
+                    args = {}
+                pending_approval.append({
+                    "tool": tc.function.name,
+                    "tool_call_id": tc.id,
+                    "arguments": args,
+                })
+
         return {
             "session_id": session_id,
             "created_at": agent_session.created_at.isoformat(),
             "is_active": agent_session.is_active,
             "message_count": len(agent_session.session.context_manager.items),
             "user_id": agent_session.user_id,
+            "pending_approval": pending_approval,
         }
 
     def list_sessions(self, user_id: str | None = None) -> list[dict[str, Any]]:

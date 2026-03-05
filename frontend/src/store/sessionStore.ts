@@ -13,6 +13,7 @@ interface SessionStore {
   switchSession: (id: string) => void;
   setSessionActive: (id: string, isActive: boolean) => void;
   updateSessionTitle: (id: string, title: string) => void;
+  setNeedsAttention: (id: string, needs: boolean) => void;
 }
 
 export const useSessionStore = create<SessionStore>()(
@@ -27,6 +28,7 @@ export const useSessionStore = create<SessionStore>()(
           title: `Chat ${get().sessions.length + 1}`,
           createdAt: new Date().toISOString(),
           isActive: true,
+          needsAttention: false,
         };
         set((state) => ({
           sessions: [...state.sessions, newSession],
@@ -50,7 +52,12 @@ export const useSessionStore = create<SessionStore>()(
       },
 
       switchSession: (id: string) => {
-        set({ activeSessionId: id });
+        set((state) => ({
+          activeSessionId: id,
+          sessions: state.sessions.map((s) =>
+            s.id === id ? { ...s, needsAttention: false } : s
+          ),
+        }));
       },
 
       setSessionActive: (id: string, isActive: boolean) => {
@@ -65,6 +72,14 @@ export const useSessionStore = create<SessionStore>()(
         set((state) => ({
           sessions: state.sessions.map((s) =>
             s.id === id ? { ...s, title } : s
+          ),
+        }));
+      },
+
+      setNeedsAttention: (id: string, needs: boolean) => {
+        set((state) => ({
+          sessions: state.sessions.map((s) =>
+            s.id === id ? { ...s, needsAttention: needs } : s
           ),
         }));
       },

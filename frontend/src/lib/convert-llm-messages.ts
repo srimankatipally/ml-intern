@@ -21,7 +21,15 @@ function nextId(): string {
   return `msg-${Date.now()}-${++idCounter}`;
 }
 
-export function llmMessagesToUIMessages(messages: LLMMessage[]): UIMessage[] {
+/**
+ * @param pendingApprovalIds - Set of tool_call_ids that are waiting for approval.
+ *   When provided, matching tool calls without results will get state
+ *   'approval-requested' instead of 'input-available'.
+ */
+export function llmMessagesToUIMessages(
+  messages: LLMMessage[],
+  pendingApprovalIds?: Set<string>,
+): UIMessage[] {
   // Build a map of tool_call_id -> tool result for pairing
   const toolResults = new Map<string, { output: string; isError: boolean }>();
   for (const msg of messages) {
@@ -71,6 +79,15 @@ export function llmMessagesToUIMessages(messages: LLMMessage[]): UIMessage[] {
               state: 'output-available',
               input,
               output: result.output,
+            });
+          } else if (pendingApprovalIds?.has(tc.id)) {
+            parts.push({
+              type: 'dynamic-tool',
+              toolCallId: tc.id,
+              toolName: tc.function.name,
+              state: 'approval-requested',
+              input,
+              approval: { id: `approval-${tc.id}` },
             });
           } else {
             parts.push({

@@ -16,32 +16,29 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
-import { logger } from '@/utils/logger';
 
 import { useSessionStore } from '@/store/sessionStore';
 import { useAgentStore } from '@/store/agentStore';
 import { useLayoutStore } from '@/store/layoutStore';
-import { useAgentChat } from '@/hooks/useAgentChat';
 import SessionSidebar from '@/components/SessionSidebar/SessionSidebar';
+import SessionChat from '@/components/SessionChat';
 import CodePanel from '@/components/CodePanel/CodePanel';
-import ChatInput from '@/components/Chat/ChatInput';
-import MessageList from '@/components/Chat/MessageList';
 import WelcomeScreen from '@/components/WelcomeScreen/WelcomeScreen';
 import { apiFetch } from '@/utils/api';
 
 const DRAWER_WIDTH = 260;
 
 export default function AppLayout() {
-  const { sessions, activeSessionId, deleteSession, updateSessionTitle } = useSessionStore();
-  const { isConnected, isProcessing, setProcessing, activityStatus, llmHealthError, setLlmHealthError, user } = useAgentStore();
-  const { 
-    isLeftSidebarOpen, 
-    isRightPanelOpen, 
+  const { sessions, activeSessionId, deleteSession } = useSessionStore();
+  const { isConnected, llmHealthError, setLlmHealthError, user } = useAgentStore();
+  const {
+    isLeftSidebarOpen,
+    isRightPanelOpen,
     rightPanelWidth,
     themeMode,
     setRightPanelWidth,
     setLeftSidebarOpen,
-    toggleLeftSidebar, 
+    toggleLeftSidebar,
     toggleTheme,
   } = useLayoutStore();
 
@@ -85,7 +82,7 @@ export default function AppLayout() {
     };
   }, [handleMouseMove, stopResizing]);
 
-  // ── LLM health check on mount ───────────────────────────────────
+  // -- LLM health check on mount -----------------------------------------
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -102,7 +99,7 @@ export default function AppLayout() {
           setLlmHealthError(null);
         }
       } catch {
-        // Backend unreachable — not an LLM issue, ignore
+        // Backend unreachable -- not an LLM issue, ignore
       }
     })();
     return () => { cancelled = true; };
@@ -110,19 +107,9 @@ export default function AppLayout() {
 
   const hasAnySessions = sessions.length > 0;
 
-  const { messages, sendMessage, stop, undoLastTurn, approveTools, flushMessages } = useAgentChat({
-    sessionId: activeSessionId,
-    onReady: () => logger.log('Agent ready'),
-    onError: (error) => logger.error('Agent error:', error),
-    onSessionDead: (deadSessionId) => {
-      logger.log('Removing dead session:', deadSessionId);
-      deleteSession(deadSessionId);
-    },
-  });
-
-  // Debounced "session expired" toast — only fires after 2s of sustained disconnect
+  // Debounced "session expired" toast
   useEffect(() => {
-    if (!isConnected && messages.length > 0 && activeSessionId) {
+    if (!isConnected && activeSessionId) {
       disconnectTimer.current = setTimeout(() => setShowExpiredToast(true), 2000);
     } else {
       if (disconnectTimer.current) clearTimeout(disconnectTimer.current);
@@ -132,34 +119,13 @@ export default function AppLayout() {
     return () => {
       if (disconnectTimer.current) clearTimeout(disconnectTimer.current);
     };
-  }, [isConnected, messages.length, activeSessionId]);
+  }, [isConnected, activeSessionId]);
 
-  const handleSendMessage = useCallback(
-    async (text: string) => {
-      if (!activeSessionId || !text.trim() || isProcessing) return;
-
-      setProcessing(true);
-      sendMessage({ text: text.trim(), metadata: { createdAt: new Date().toISOString() } });
-
-      // Auto-title the session from the first user message (async, non-blocking)
-      const isFirstMessage = messages.filter((m) => m.role === 'user').length <= 1;
-      if (isFirstMessage) {
-        const sessionId = activeSessionId;
-        apiFetch('/api/title', {
-          method: 'POST',
-          body: JSON.stringify({ session_id: sessionId, text: text.trim() }),
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            if (data.title) updateSessionTitle(sessionId, data.title);
-          })
-          .catch(() => {
-            const raw = text.trim();
-            updateSessionTitle(sessionId, raw.length > 40 ? raw.slice(0, 40) + '…' : raw);
-          });
-      }
+  const handleSessionDead = useCallback(
+    (deadSessionId: string) => {
+      deleteSession(deadSessionId);
     },
-    [activeSessionId, sendMessage, messages, updateSessionTitle, isProcessing, setProcessing],
+    [deleteSession],
   );
 
   // Close sidebar on mobile after selecting a session
@@ -167,7 +133,7 @@ export default function AppLayout() {
     if (isMobile) setLeftSidebarOpen(false);
   }, [isMobile, setLeftSidebarOpen]);
 
-  // ── LLM error toast helper ──────────────────────────────────────────
+  // -- LLM error toast helper --------------------------------------------
   const llmErrorTitle = llmHealthError
     ? llmHealthError.errorType === 'credits'
       ? 'API Credits Exhausted'
@@ -180,7 +146,7 @@ export default function AppLayout() {
       : 'LLM Error'
     : '';
 
-  // ── Welcome screen: no sessions at all ────────────────────────────
+  // -- Welcome screen: no sessions at all ---------------------------------
   if (!hasAnySessions) {
     return (
       <Box sx={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -189,14 +155,14 @@ export default function AppLayout() {
     );
   }
 
-  // ── Sidebar drawer ────────────────────────────────────────────────
+  // -- Sidebar drawer -----------------------------------------------------
   const sidebarDrawer = (
     <Drawer
       variant={isMobile ? 'temporary' : 'persistent'}
       anchor="left"
       open={isLeftSidebarOpen}
       onClose={() => setLeftSidebarOpen(false)}
-      ModalProps={{ keepMounted: true }} // Better mobile perf
+      ModalProps={{ keepMounted: true }}
       sx={{
         '& .MuiDrawer-paper': {
           boxSizing: 'border-box',
@@ -209,19 +175,17 @@ export default function AppLayout() {
         },
       }}
     >
-      <SessionSidebar onClose={handleSidebarClose} onBeforeSwitch={flushMessages} />
+      <SessionSidebar onClose={handleSidebarClose} />
     </Drawer>
   );
 
-  // ── Main chat interface ───────────────────────────────────────────
+  // -- Main chat interface ------------------------------------------------
   return (
     <Box sx={{ display: 'flex', width: '100%', height: '100%' }}>
-      {/* ── Left Sidebar ─────────────────────────────────────────── */}
+      {/* -- Left Sidebar ------------------------------------------------- */}
       {isMobile ? (
-        // Mobile: temporary overlay drawer (no reserved width)
         sidebarDrawer
       ) : (
-        // Desktop: persistent drawer with reserved width
         <Box
           component="nav"
           sx={{
@@ -235,7 +199,7 @@ export default function AppLayout() {
         </Box>
       )}
 
-      {/* ── Main Content (header + chat + code panel) ────────────── */}
+      {/* -- Main Content (header + chat + code panel) -------------------- */}
       <Box
         sx={{
           flexGrow: 1,
@@ -247,13 +211,13 @@ export default function AppLayout() {
           minWidth: 0,
         }}
       >
-        {/* ── Top Header Bar ─────────────────────────────────────── */}
-        <Box sx={{ 
+        {/* -- Top Header Bar --------------------------------------------- */}
+        <Box sx={{
           height: { xs: 52, md: 60 },
-          px: { xs: 1, md: 2 }, 
-          display: 'flex', 
-          alignItems: 'center', 
-          borderBottom: 1, 
+          px: { xs: 1, md: 2 },
+          display: 'flex',
+          alignItems: 'center',
+          borderBottom: 1,
           borderColor: 'divider',
           bgcolor: 'background.default',
           zIndex: 1200,
@@ -262,7 +226,7 @@ export default function AppLayout() {
           <IconButton onClick={toggleLeftSidebar} size="small">
             {isLeftSidebarOpen && !isMobile ? <ChevronLeftIcon /> : <MenuIcon />}
           </IconButton>
-          
+
           <Box sx={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 0.75 }}>
             <Box
               component="img"
@@ -318,7 +282,7 @@ export default function AppLayout() {
           </Box>
         </Box>
 
-        {/* ── Chat + Code Panel ──────────────────────────────────── */}
+        {/* -- Chat + Code Panel ------------------------------------------ */}
         <Box
           sx={{
             flexGrow: 1,
@@ -341,16 +305,16 @@ export default function AppLayout() {
             }}
           >
             {activeSessionId ? (
-              <>
-                <MessageList messages={messages} isProcessing={isProcessing} approveTools={approveTools} onUndoLastTurn={undoLastTurn} />
-                <ChatInput
-                  onSend={handleSendMessage}
-                  onStop={stop}
-                  isProcessing={isProcessing}
-                  disabled={!isConnected || activityStatus.type === 'waiting-approval'}
-                  placeholder={activityStatus.type === 'waiting-approval' ? 'Approve or reject pending tools first...' : undefined}
+              // Render ALL sessions — each owns its own useAgentChat.
+              // Only the active one renders visible UI (others return null).
+              sessions.map((s) => (
+                <SessionChat
+                  key={s.id}
+                  sessionId={s.id}
+                  isActive={s.id === activeSessionId}
+                  onSessionDead={handleSessionDead}
                 />
-              </>
+              ))
             ) : (
               <Box
                 sx={{
@@ -373,7 +337,7 @@ export default function AppLayout() {
             )}
           </Box>
 
-          {/* Code panel — inline on desktop, overlay drawer on mobile */}
+          {/* Code panel -- inline on desktop, overlay drawer on mobile */}
           {isRightPanelOpen && !isMobile && (
             <>
               <Box
@@ -390,8 +354,8 @@ export default function AppLayout() {
                   '&:hover': { bgcolor: 'primary.main' },
                 }}
               >
-                <DragIndicatorIcon 
-                  sx={{ fontSize: '0.8rem', color: 'text.secondary', pointerEvents: 'none' }} 
+                <DragIndicatorIcon
+                  sx={{ fontSize: '0.8rem', color: 'text.secondary', pointerEvents: 'none' }}
                 />
               </Box>
               <Box
@@ -412,7 +376,7 @@ export default function AppLayout() {
         </Box>
       </Box>
 
-      {/* Code panel — drawer overlay on mobile */}
+      {/* Code panel -- drawer overlay on mobile */}
       {isMobile && (
         <Drawer
           anchor="bottom"
