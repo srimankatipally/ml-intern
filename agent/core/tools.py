@@ -128,11 +128,11 @@ class ToolRouter:
     Based on codex-rs/core/src/tools/router.rs
     """
 
-    def __init__(self, mcp_servers: dict[str, MCPServerConfig], hf_token: str | None = None):
+    def __init__(self, mcp_servers: dict[str, MCPServerConfig], hf_token: str | None = None, local_mode: bool = False):
         self.tools: dict[str, ToolSpec] = {}
         self.mcp_servers: dict[str, dict[str, Any]] = {}
 
-        for tool in create_builtin_tools():
+        for tool in create_builtin_tools(local_mode=local_mode):
             self.register_tool(tool)
 
         self.mcp_client: Client | None = None
@@ -273,7 +273,7 @@ class ToolRouter:
 # ============================================================================
 
 
-def create_builtin_tools() -> list[ToolSpec]:
+def create_builtin_tools(local_mode: bool = False) -> list[ToolSpec]:
     """Create built-in tool specifications"""
     # in order of importance
     tools = [
@@ -350,8 +350,12 @@ def create_builtin_tools() -> list[ToolSpec]:
         ),
     ]
 
-    # Sandbox tools (highest priority)
-    tools = get_sandbox_tools() + tools
+    # Sandbox or local tools (highest priority)
+    if local_mode:
+        from agent.tools.local_tools import get_local_tools
+        tools = get_local_tools() + tools
+    else:
+        tools = get_sandbox_tools() + tools
 
     tool_names = ", ".join([t.name for t in tools])
     logger.info(f"Loaded {len(tools)} built-in tools: {tool_names}")

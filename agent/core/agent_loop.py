@@ -795,6 +795,8 @@ async def submission_loop(
     event_queue: asyncio.Queue,
     config: Config | None = None,
     tool_router: ToolRouter | None = None,
+    session_holder: list | None = None,
+    hf_token: str | None = None,
 ) -> None:
     """
     Main agent loop - processes submissions and dispatches to handlers.
@@ -802,7 +804,9 @@ async def submission_loop(
     """
 
     # Create session with tool router
-    session = Session(event_queue, config=config, tool_router=tool_router)
+    session = Session(event_queue, config=config, tool_router=tool_router, hf_token=hf_token)
+    if session_holder is not None:
+        session_holder[0] = session
     logger.info("Agent loop started")
 
     # Retry any failed uploads from previous sessions (fire-and-forget)

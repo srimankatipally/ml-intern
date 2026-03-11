@@ -141,6 +141,56 @@ class ContextManager:
         self._patch_dangling_tool_calls()
         return self.items
 
+    @staticmethod
+    def _tc_id(tc) -> str:
+        if isinstance(tc, dict):
+            return tc.get("id", "")
+        return tc.id
+
+    @staticmethod
+    def _tc_func_name(tc) -> str:
+        if isinstance(tc, dict):
+            fn = tc.get("function", {})
+            return fn.get("name", "") if isinstance(fn, dict) else getattr(fn, "name", "")
+        return tc.function.name
+
+    @staticmethod
+    def _tc_func_args(tc) -> str:
+        if isinstance(tc, dict):
+            fn = tc.get("function", {})
+            return fn.get("arguments", "{}") if isinstance(fn, dict) else getattr(fn, "arguments", "{}")
+        return tc.function.arguments
+
+    @staticmethod
+    def _tc_set_func_args(tc, value: str) -> None:
+        if isinstance(tc, dict):
+            fn = tc.get("function")
+            if isinstance(fn, dict):
+                fn["arguments"] = value
+            else:
+                fn.arguments = value
+        else:
+            tc.function.arguments = value
+
+    def _sanitize_tool_calls(self) -> None:
+        """Fix malformed tool_call arguments across all assistant messages."""
+        import json
+
+        for msg in self.items:
+            if getattr(msg, "role", None) != "assistant":
+                continue
+            tool_calls = getattr(msg, "tool_calls", None)
+            if not tool_calls:
+                continue
+            for tc in tool_calls:
+                try:
+                    json.loads(self._tc_func_args(tc))
+                except (json.JSONDecodeError, TypeError, ValueError):
+                    logger.warning(
+                        "Sanitizing malformed arguments for tool_call %s (%s)",
+                        self._tc_id(tc), self._tc_func_name(tc),
+                    )
+                    self._tc_set_func_args(tc, "{}")
     def _patch_dangling_tool_calls(self) -> None:
         """Add stub tool results for any tool_calls that lack a matching result.
 
@@ -171,13 +221,14 @@ class ContextManager:
             if getattr(m, "role", None) == "tool"
         }
         for tc in assistant_msg.tool_calls:
-            if tc.id not in answered_ids:
+            tc_id = self._tc_id(tc)
+            if tc_id not in answered_ids:
                 self.items.append(
                     Message(
                         role="tool",
                         content="Tool was not executed (interrupted or error).",
-                        tool_call_id=tc.id,
-                        name=tc.function.name,
+                        tool_call_id=tc_id,
+                        name=self._tc_func_name(tc),
                     )
                 )
 
