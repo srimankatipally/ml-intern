@@ -1,14 +1,12 @@
-FROM nvidia/cuda:12.9.1-cudnn-devel-ubuntu22.04
+FROM vllm/vllm-openai:v0.11.0 AS base
 
+USER root
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN chmod 1777 /tmp && \
     apt-get update && apt-get install -y \
-        python3.10 python3-dev git wget curl build-essential uuid-runtime \
+        git wget curl build-essential uuid-runtime \
     && rm -rf /var/lib/apt/lists/*
-
-RUN ln -sf /usr/bin/python3.10 /usr/bin/python3 && \
-    ln -sf /usr/bin/python3.10 /usr/bin/python
 
 # Node.js 22.x
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
@@ -18,8 +16,7 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
-# vLLM + ML packages (matching PostTrainBench standard.def)
-RUN uv pip install --system --no-cache vllm==0.11.0 --torch-backend=auto
+# ML packages on top of vLLM base
 RUN uv pip install --system --no-cache ninja packaging
 RUN uv pip install --system --no-cache \
     accelerate boto3 bitsandbytes datasets evaluate lm-eval openai \
