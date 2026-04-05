@@ -27,21 +27,40 @@ RUN uv pip install --system --no-cache torch torchvision --index-url https://dow
 # vLLM (allow it to resolve its own deps against the installed torch)
 RUN uv pip install --system --no-cache vllm==0.11.0
 
-RUN uv pip install --system --no-cache ninja packaging
+RUN uv pip install --system --no-cache ninja==1.13.0 packaging==26.0
 
-# ML packages (matching PostTrainBench standard.def)
+# ML packages — pinned to match PTB eval container (opus_4_6_1m.def)
+# so models saved during training are compatible with the eval harness.
 RUN uv pip install --system --no-cache \
-    accelerate boto3 bitsandbytes datasets evaluate lm-eval openai \
-    pandas scikit-learn shortuuid tokenizers transformers trl peft \
-    tiktoken inspect-ai matplotlib certifi
+    accelerate==1.12.0 \
+    boto3==1.40.61 \
+    bitsandbytes==0.49.1 \
+    datasets==4.5.0 \
+    evaluate==0.4.6 \
+    lm-eval==0.4.10 \
+    openai==2.17.0 \
+    pandas==2.2.3 \
+    scikit-learn==1.7.2 \
+    shortuuid==1.0.13 \
+    tokenizers==0.22.2 \
+    transformers==4.57.3 \
+    trl==0.27.2 \
+    peft==0.18.1 \
+    tiktoken==0.12.0 \
+    inspect-ai==0.3.150 \
+    matplotlib==3.10.8 \
+    certifi==2026.1.4 \
+    huggingface-hub==0.36.0
 
 RUN uv pip install --system --no-cache wheel setuptools einops psutil && \
-    uv pip install --system --no-cache flash_attn --no-build-isolation
+    uv pip install --system --no-cache flash_attn==2.8.3 --no-build-isolation
 
-# inspect_evals
+# inspect_evals (pinned to same commit as PTB eval container)
 RUN cd /opt && \
-    git clone --depth=1 https://github.com/UKGovernmentBEIS/inspect_evals.git && \
-    cd inspect_evals && uv pip install --system --no-cache .
+    git clone https://github.com/UKGovernmentBEIS/inspect_evals.git && \
+    cd inspect_evals && \
+    git checkout 06001a83e6d7c709c2ede0570dce7f1031a0bad8 && \
+    uv pip install --system --no-cache .
 
 ENV NO_PROXY="localhost,127.0.0.1"
 ENV no_proxy="localhost,127.0.0.1"
