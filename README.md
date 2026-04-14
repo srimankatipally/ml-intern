@@ -1,5 +1,5 @@
 ---
-title: HF Agent
+title: ML Agent
 emoji: 🤖
 colorFrom: blue
 colorTo: purple
@@ -16,6 +16,7 @@ hf_oauth_scopes:
   - jobs
   - write-discussions
 ---
+
 # ML Agent
 
 An MLE agent that researches, writes, and ships good quality ML releated code using the Hugging Face ecosystem — with deep access to docs, papers, datasets, and cloud compute.
