@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 # Context budget for the research subagent (tokens).
 # When usage exceeds WARN threshold, the subagent is told to wrap up.
 # At MAX, the loop is force-stopped and whatever content exists is returned.
+_RESEARCH_TIME_MAX = 1200  # 20 minute hard cap
 _RESEARCH_CONTEXT_WARN = 170_000  # 85% of 200k
 _RESEARCH_CONTEXT_MAX = 190_000
 
@@ -288,7 +289,10 @@ async def research_handler(
 
     await _log("Starting research sub-agent...")
 
-    # Run the research loop — context budget is the real limiter
+    import time as _time
+    _research_start = _time.monotonic()
+
+    # Run the research loop — context budget and time are the real limiters
     max_iterations = 60
     for _iteration in range(max_iterations):
         # ── Doom-loop detection ──
@@ -297,6 +301,22 @@ async def research_handler(
             logger.warning("Research sub-agent doom loop detected at iteration %d", _iteration)
             await _log("Doom loop detected — injecting corrective prompt")
             messages.append(Message(role="user", content=doom_prompt))
+
+        # ── Time budget: hard-stop at 10 minutes ──
+        _elapsed = _time.monotonic() - _research_start
+        if _elapsed >= _RESEARCH_TIME_MAX:
+            logger.warning("Research sub-agent hit time limit (%.0fs)", _elapsed)
+            await _log(f"Time limit reached ({_elapsed:.0f}s) — forcing wrap-up")
+            messages.append(Message(
+                role="user",
+                content=(
+                    "[SYSTEM: TIME LIMIT REACHED] You have been researching for over 10 minutes. "
+                    "Summarize your findings NOW. Return what you have — do not make any more tool calls."
+                ),
+            ))
+            response = await acompletion(messages=messages, tools=None, model=research_model, timeout=120)
+            content = response.choices[0].message.content or ""
+            return content, bool(content)
 
         # ── Context budget: warn at 75%, hard-stop at 95% ──
         if _total_tokens >= _RESEARCH_CONTEXT_MAX:
