@@ -45,14 +45,38 @@ from agent.utils.terminal_display import (
 
 litellm.drop_params = True
 
-# ── Available models (mirrors backend/routes/agent.py) ──────────────────
-AVAILABLE_MODELS = [
+# ── Suggested models shown by `/model` (not a gate) ──────────────────────
+# Any model id accepted by litellm is usable; for the HF router the form is
+# `huggingface/<inference_provider>/<org>/<model>` and users can pick any
+# model supported by any HF inference provider.
+SUGGESTED_MODELS = [
     {"id": "anthropic/claude-opus-4-6", "label": "Claude Opus 4.6"},
     {"id": "huggingface/fireworks-ai/MiniMaxAI/MiniMax-M2.5", "label": "MiniMax M2.5"},
     {"id": "huggingface/novita/moonshotai/kimi-k2.5", "label": "Kimi K2.5"},
     {"id": "huggingface/novita/zai-org/glm-5", "label": "GLM 5"},
 ]
-VALID_MODEL_IDS = {m["id"] for m in AVAILABLE_MODELS}
+
+
+def _is_valid_model_id(model_id: str) -> bool:
+    """Loose format check — lets users pick any inference-provider model.
+
+    Accepts:
+      • huggingface/<provider>/<org>/<model>  (HF router)
+      • anthropic/<model>
+      • openai/<model>
+    Actual availability is verified by the provider when the first call
+    is made; we don't want to maintain a hardcoded allowlist.
+    """
+    if not model_id or "/" not in model_id:
+        return False
+    if model_id.startswith("huggingface/"):
+        # needs provider + org + model → at least 3 slashes after the prefix
+        parts = model_id.split("/")
+        return len(parts) >= 4 and all(parts)
+    if model_id.startswith(("anthropic/", "openai/")):
+        parts = model_id.split("/", 1)
+        return len(parts) == 2 and bool(parts[1])
+    return False
 
 
 def _safe_get_args(arguments: dict) -> dict:
@@ -668,16 +692,26 @@ def _handle_slash_command(
 
     if command == "/model":
         if not arg:
-            print("Available models:")
-            session = session_holder[0] if session_holder else None
             current = config.model_name if config else ""
-            for m in AVAILABLE_MODELS:
+            print("Current model:")
+            print(f"  {current}")
+            print("\nSuggested models (any HF inference-provider model works):")
+            for m in SUGGESTED_MODELS:
                 marker = " <-- current" if m["id"] == current else ""
                 print(f"  {m['id']}  ({m['label']}){marker}")
+            print(
+                "\nPass any id, e.g. huggingface/<provider>/<org>/<model>.\n"
+                "Availability is verified on first use."
+            )
             return None
-        if arg not in VALID_MODEL_IDS:
-            print(f"Unknown model: {arg}")
-            print(f"Valid: {', '.join(VALID_MODEL_IDS)}")
+        if not _is_valid_model_id(arg):
+            print(f"Invalid model id format: {arg}")
+            print(
+                "Expected one of:\n"
+                "  • huggingface/<provider>/<org>/<model>\n"
+                "  • anthropic/<model>\n"
+                "  • openai/<model>"
+            )
             return None
         session = session_holder[0] if session_holder else None
         if session:
