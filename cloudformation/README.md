@@ -2,6 +2,23 @@
 
 Deploy ML Intern with Bedrock support on AWS using CloudFormation.
 
+## One-Click Deploy to AWS
+
+### EC2 Deployment (Simple)
+
+[![Launch EC2 Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/new?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml)
+
+| Region | Launch |
+|--------|--------|
+| US East (N. Virginia) | [![Launch](https://img.shields.io/badge/Launch-us--east--1-orange?logo=amazon-aws)](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml) |
+| US West (Oregon) | [![Launch](https://img.shields.io/badge/Launch-us--west--2-orange?logo=amazon-aws)](https://us-west-2.console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/review?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml) |
+| EU (Ireland) | [![Launch](https://img.shields.io/badge/Launch-eu--west--1-orange?logo=amazon-aws)](https://eu-west-1.console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/create/review?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml) |
+| Asia Pacific (Tokyo) | [![Launch](https://img.shields.io/badge/Launch-ap--northeast--1-orange?logo=amazon-aws)](https://ap-northeast-1.console.aws.amazon.com/cloudformation/home?region=ap-northeast-1#/stacks/create/review?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml) |
+
+> **After clicking**: Enter your HuggingFace token, select instance type, and click "Create Stack"
+
+---
+
 ## Templates
 
 | Template | Description | Best For |
