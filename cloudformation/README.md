@@ -4,18 +4,48 @@ Deploy ML Intern with Bedrock support on AWS using CloudFormation.
 
 ## One-Click Deploy to AWS
 
-### EC2 Deployment (Simple)
+### Option A: Upload Template (Recommended)
 
-[![Launch EC2 Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/new?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml)
+1. **Download the template:**
+   - [ml-intern-stack.yaml](https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml) (EC2 - Simple)
+   - [ml-intern-fargate.yaml](https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-fargate.yaml) (Fargate - Production)
 
-| Region | Launch |
-|--------|--------|
-| US East (N. Virginia) | [![Launch](https://img.shields.io/badge/Launch-us--east--1-orange?logo=amazon-aws)](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml) |
-| US West (Oregon) | [![Launch](https://img.shields.io/badge/Launch-us--west--2-orange?logo=amazon-aws)](https://us-west-2.console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/review?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml) |
-| EU (Ireland) | [![Launch](https://img.shields.io/badge/Launch-eu--west--1-orange?logo=amazon-aws)](https://eu-west-1.console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/create/review?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml) |
-| Asia Pacific (Tokyo) | [![Launch](https://img.shields.io/badge/Launch-ap--northeast--1-orange?logo=amazon-aws)](https://ap-northeast-1.console.aws.amazon.com/cloudformation/home?region=ap-northeast-1#/stacks/create/review?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml) |
+2. **Open AWS CloudFormation Console:**
 
-> **After clicking**: Enter your HuggingFace token, select instance type, and click "Create Stack"
+| Region | Open Console |
+|--------|--------------|
+| US East (N. Virginia) | [![Open Console](https://img.shields.io/badge/Open-us--east--1-orange?logo=amazon-aws)](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/template) |
+| US West (Oregon) | [![Open Console](https://img.shields.io/badge/Open-us--west--2-orange?logo=amazon-aws)](https://us-west-2.console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/template) |
+| EU (Ireland) | [![Open Console](https://img.shields.io/badge/Open-eu--west--1-orange?logo=amazon-aws)](https://eu-west-1.console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/create/template) |
+| Asia Pacific (Tokyo) | [![Open Console](https://img.shields.io/badge/Open-ap--northeast--1-orange?logo=amazon-aws)](https://ap-northeast-1.console.aws.amazon.com/cloudformation/home?region=ap-northeast-1#/stacks/create/template) |
+
+3. **Select "Upload a template file"** and upload the downloaded YAML file
+
+4. **Fill in parameters:**
+   - `HFToken`: Your HuggingFace API token
+   - `BedrockModel`: Select model (default: Claude Sonnet 4.6)
+   - `InstanceType`: EC2 size (default: t3.medium)
+
+5. **Click "Create Stack"**
+
+### Option B: Deploy via AWS CLI
+
+```bash
+# Download template
+curl -O https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml
+
+# Deploy
+aws cloudformation create-stack \
+  --stack-name ml-intern \
+  --template-body file://ml-intern-stack.yaml \
+  --parameters \
+    ParameterKey=HFToken,ParameterValue=hf_xxxxx \
+    ParameterKey=BedrockModel,ParameterValue=bedrock/anthropic.claude-sonnet-4-6 \
+  --capabilities CAPABILITY_NAMED_IAM \
+  --region us-east-1
+```
+
+> **Prerequisites**: [Enable Bedrock models](#enable-bedrock-models) in your AWS account first.
 
 ---
 

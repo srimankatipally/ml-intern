@@ -6,19 +6,33 @@
 
 An ML intern that autonomously researches, writes, and ships good quality ML releated code using the Hugging Face ecosystem — with deep access to docs, papers, datasets, and cloud compute.
 
-## Deploy to AWS (One-Click)
+## Deploy to AWS
 
-[![Launch Stack](https://s3.amazonaws.com/cloudformation-examples/cloudformation-launch-stack.png)](https://console.aws.amazon.com/cloudformation/home#/stacks/new?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml)
+### Step 1: Download Template
 
-| Region | EC2 (Simple) | Fargate (Production) |
-|--------|--------------|----------------------|
-| US East (N. Virginia) | [![Launch](https://img.shields.io/badge/Launch-EC2-orange?logo=amazon-aws)](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml) | [![Launch](https://img.shields.io/badge/Launch-Fargate-blue?logo=amazon-aws)](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/review?stackName=ml-intern-fargate&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-fargate.yaml) |
-| US West (Oregon) | [![Launch](https://img.shields.io/badge/Launch-EC2-orange?logo=amazon-aws)](https://us-west-2.console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/review?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml) | [![Launch](https://img.shields.io/badge/Launch-Fargate-blue?logo=amazon-aws)](https://us-west-2.console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/review?stackName=ml-intern-fargate&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-fargate.yaml) |
-| EU (Ireland) | [![Launch](https://img.shields.io/badge/Launch-EC2-orange?logo=amazon-aws)](https://eu-west-1.console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/create/review?stackName=ml-intern&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml) | [![Launch](https://img.shields.io/badge/Launch-Fargate-blue?logo=amazon-aws)](https://eu-west-1.console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/create/review?stackName=ml-intern-fargate&templateURL=https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-fargate.yaml) |
+| Template | Description | Download |
+|----------|-------------|----------|
+| EC2 (Simple) | Single instance, SSH access | [ml-intern-stack.yaml](https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-stack.yaml) |
+| Fargate (Production) | Auto-scaling, Load Balancer | [ml-intern-fargate.yaml](https://raw.githubusercontent.com/srimankatipally/ml-intern/main/cloudformation/ml-intern-fargate.yaml) |
+
+### Step 2: Open CloudFormation Console
+
+| Region | Open Console |
+|--------|--------------|
+| US East (N. Virginia) | [![Deploy](https://img.shields.io/badge/Deploy-us--east--1-orange?logo=amazon-aws)](https://us-east-1.console.aws.amazon.com/cloudformation/home?region=us-east-1#/stacks/create/template) |
+| US West (Oregon) | [![Deploy](https://img.shields.io/badge/Deploy-us--west--2-orange?logo=amazon-aws)](https://us-west-2.console.aws.amazon.com/cloudformation/home?region=us-west-2#/stacks/create/template) |
+| EU (Ireland) | [![Deploy](https://img.shields.io/badge/Deploy-eu--west--1-orange?logo=amazon-aws)](https://eu-west-1.console.aws.amazon.com/cloudformation/home?region=eu-west-1#/stacks/create/template) |
+
+### Step 3: Upload & Deploy
+
+1. Select **"Upload a template file"**
+2. Upload the downloaded YAML file
+3. Enter your **HuggingFace token**
+4. Click **"Create Stack"**
 
 > **Prerequisites**: [Enable Bedrock models](cloudformation/README.md#enable-bedrock-models) in your AWS account first.
 > 
-> See [cloudformation/README.md](cloudformation/README.md) for detailed deployment instructions.
+> See [cloudformation/README.md](cloudformation/README.md) for detailed instructions.
 
 ## Quick Start
 
