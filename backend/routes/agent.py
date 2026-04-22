@@ -37,12 +37,52 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["agent"])
 
 AVAILABLE_MODELS = [
+    # Anthropic Direct API
     {
         "id": "anthropic/claude-opus-4-6",
         "label": "Claude Opus 4.6",
         "provider": "anthropic",
         "recommended": True,
     },
+    # AWS Bedrock Models
+    {
+        "id": "bedrock/anthropic.claude-opus-4-7",
+        "label": "Claude Opus 4.7 (Bedrock)",
+        "provider": "bedrock",
+        "recommended": True,
+    },
+    {
+        "id": "bedrock/anthropic.claude-sonnet-4-6",
+        "label": "Claude Sonnet 4.6 (Bedrock)",
+        "provider": "bedrock",
+        "recommended": True,
+    },
+    {
+        "id": "bedrock/anthropic.claude-opus-4-6",
+        "label": "Claude Opus 4.6 (Bedrock)",
+        "provider": "bedrock",
+    },
+    {
+        "id": "bedrock/anthropic.claude-sonnet-4-5",
+        "label": "Claude Sonnet 4.5 (Bedrock)",
+        "provider": "bedrock",
+    },
+    {
+        "id": "bedrock/anthropic.claude-haiku-4-5",
+        "label": "Claude Haiku 4.5 (Bedrock)",
+        "provider": "bedrock",
+    },
+    {
+        "id": "bedrock/meta.llama3-1-70b-instruct-v1:0",
+        "label": "Llama 3.1 70B (Bedrock)",
+        "provider": "bedrock",
+    },
+    {
+        "id": "bedrock/meta.llama3-1-8b-instruct-v1:0",
+        "label": "Llama 3.1 8B (Bedrock)",
+        "provider": "bedrock",
+    },
+    # HuggingFace Models
     {
         "id": "MiniMaxAI/MiniMax-M2.7",
         "label": "MiniMax M2.7",

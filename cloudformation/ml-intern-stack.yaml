@@ -1,0 +1,402 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ML Intern - Hugging Face AI Agent with Bedrock Support'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues:
+      - production
+      - staging
+      - development
+    Description: Deployment environment
+
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    AllowedValues:
+      - t3.small
+      - t3.medium
+      - t3.large
+      - t3.xlarge
+      - m5.large
+      - m5.xlarge
+    Description: EC2 instance type
+
+  HFToken:
+    Type: String
+    NoEcho: true
+    Description: Hugging Face API Token
+
+  GitHubToken:
+    Type: String
+    NoEcho: true
+    Default: ''
+    Description: GitHub Personal Access Token (optional)
+
+  BedrockModel:
+    Type: String
+    Default: bedrock/anthropic.claude-sonnet-4-6
+    Description: Bedrock model to use (can be changed at runtime via Web UI)
+
+  VpcCIDR:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for VPC
+
+  PublicSubnetCIDR:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for public subnet
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Environment Configuration"
+        Parameters:
+          - Environment
+          - InstanceType
+      - Label:
+          default: "API Keys"
+        Parameters:
+          - HFToken
+          - GitHubToken
+      - Label:
+          default: "Model Configuration"
+        Parameters:
+          - BedrockModel
+      - Label:
+          default: "Network Configuration"
+        Parameters:
+          - VpcCIDR
+          - PublicSubnetCIDR
+
+Resources:
+  # VPC and Networking
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCIDR
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-vpc'
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-igw'
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref VPC
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PublicSubnetCIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-public-subnet'
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-public-rt'
+
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      SubnetId: !Ref PublicSubnet
+
+  # Security Group
+  MLInternSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${AWS::StackName}-sg'
+      GroupDescription: Security group for ML Intern
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 7860
+          ToPort: 7860
+          CidrIp: 0.0.0.0/0
+          Description: ML Intern Web UI
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: HTTPS
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-sg'
+
+  # IAM Role for EC2 with Bedrock Access
+  MLInternRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: BedrockAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:ListFoundationModels
+                  - bedrock:GetFoundationModel
+                Resource: '*'
+        - PolicyName: SecretsManagerAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                Resource: !Ref MLInternSecrets
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  MLInternInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub '${AWS::StackName}-instance-profile'
+      Roles:
+        - !Ref MLInternRole
+
+  # Secrets Manager for API Keys
+  MLInternSecrets:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub '${AWS::StackName}-secrets'
+      Description: API keys for ML Intern
+      SecretString: !Sub |
+        {
+          "HF_TOKEN": "${HFToken}",
+          "GITHUB_TOKEN": "${GitHubToken}"
+        }
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-secrets'
+
+  # EC2 Instance
+  MLInternInstance:
+    Type: AWS::EC2::Instance
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      InstanceType: !Ref InstanceType
+      IamInstanceProfile: !Ref MLInternInstanceProfile
+      ImageId: !Sub '{{resolve:ssm:/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64}}'
+      SubnetId: !Ref PublicSubnet
+      SecurityGroupIds:
+        - !Ref MLInternSecurityGroup
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 30
+            VolumeType: gp3
+            DeleteOnTermination: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-instance'
+        - Key: Environment
+          Value: !Ref Environment
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -e
+
+          # Log output
+          exec > >(tee /var/log/user-data.log) 2>&1
+          echo "Starting ML Intern setup..."
+
+          # Update system
+          dnf update -y
+          dnf install -y git docker python3.12 python3.12-pip nodejs npm
+
+          # Start Docker
+          systemctl start docker
+          systemctl enable docker
+          usermod -aG docker ec2-user
+
+          # Install uv (Python package manager)
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          export PATH="/root/.local/bin:$PATH"
+
+          # Get secrets from Secrets Manager
+          SECRET_ARN="${MLInternSecrets}"
+          SECRETS=$(aws secretsmanager get-secret-value --secret-id $SECRET_ARN --query SecretString --output text --region ${AWS::Region})
+          
+          HF_TOKEN=$(echo $SECRETS | python3 -c "import sys, json; print(json.load(sys.stdin)['HF_TOKEN'])")
+          GITHUB_TOKEN=$(echo $SECRETS | python3 -c "import sys, json; print(json.load(sys.stdin)['GITHUB_TOKEN'])")
+
+          # Clone ML Intern
+          cd /opt
+          git clone https://github.com/huggingface/ml-intern.git
+          cd ml-intern
+
+          # Create .env file
+          cat > .env << EOF
+          HF_TOKEN=$HF_TOKEN
+          GITHUB_TOKEN=$GITHUB_TOKEN
+          AWS_DEFAULT_REGION=${AWS::Region}
+          EOF
+
+          # Update config to use Bedrock
+          cat > configs/main_agent_config.json << EOF
+          {
+            "model_name": "${BedrockModel}",
+            "save_sessions": true,
+            "session_dataset_repo": "",
+            "yolo_mode": false,
+            "confirm_cpu_jobs": true,
+            "auto_file_upload": true,
+            "mcpServers": {
+              "hf-mcp-server": {
+                "transport": "http",
+                "url": "https://huggingface.co/mcp?login"
+              }
+            }
+          }
+          EOF
+
+          # Set ownership
+          chown -R ec2-user:ec2-user /opt/ml-intern
+
+          # Build and run with Docker
+          docker build -t ml-intern .
+          
+          # Create systemd service
+          cat > /etc/systemd/system/ml-intern.service << EOF
+          [Unit]
+          Description=ML Intern Web UI
+          After=docker.service
+          Requires=docker.service
+
+          [Service]
+          Type=simple
+          Restart=always
+          RestartSec=5
+          ExecStartPre=-/usr/bin/docker stop ml-intern
+          ExecStartPre=-/usr/bin/docker rm ml-intern
+          ExecStart=/usr/bin/docker run --rm --name ml-intern \
+            -p 7860:7860 \
+            --env-file /opt/ml-intern/.env \
+            -e AWS_DEFAULT_REGION=${AWS::Region} \
+            ml-intern
+          ExecStop=/usr/bin/docker stop ml-intern
+
+          [Install]
+          WantedBy=multi-user.target
+          EOF
+
+          # Enable and start service
+          systemctl daemon-reload
+          systemctl enable ml-intern
+          systemctl start ml-intern
+
+          echo "ML Intern setup complete!"
+
+  # Elastic IP for stable access
+  MLInternEIP:
+    Type: AWS::EC2::EIP
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-eip'
+
+  MLInternEIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      InstanceId: !Ref MLInternInstance
+      EIP: !Ref MLInternEIP
+
+  # CloudWatch Log Group
+  MLInternLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/ec2/${AWS::StackName}'
+      RetentionInDays: 30
+
+Outputs:
+  WebUIURL:
+    Description: ML Intern Web UI URL
+    Value: !Sub 'http://${MLInternEIP}:7860'
+    Export:
+      Name: !Sub '${AWS::StackName}-WebUIURL'
+
+  InstanceId:
+    Description: EC2 Instance ID
+    Value: !Ref MLInternInstance
+    Export:
+      Name: !Sub '${AWS::StackName}-InstanceId'
+
+  PublicIP:
+    Description: Public IP Address
+    Value: !Ref MLInternEIP
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicIP'
+
+  SSHCommand:
+    Description: SSH command to connect
+    Value: !Sub 'ssh -i <your-key.pem> ec2-user@${MLInternEIP}'
+
+  SecretsArn:
+    Description: Secrets Manager ARN
+    Value: !Ref MLInternSecrets
+    Export:
+      Name: !Sub '${AWS::StackName}-SecretsArn'
+
+  BedrockModel:
+    Description: Configured Bedrock Model
+    Value: !Ref BedrockModel
