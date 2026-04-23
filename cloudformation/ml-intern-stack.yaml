@@ -252,7 +252,7 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          set -e
+          set -ex
 
           # Log output
           exec > >(tee /var/log/user-data.log) 2>&1
@@ -260,38 +260,36 @@ Resources:
 
           # Update system
           dnf update -y
-          dnf install -y git docker python3.12 python3.12-pip nodejs npm
+          dnf install -y git docker python3.12 python3.12-pip
 
           # Start Docker
           systemctl start docker
           systemctl enable docker
           usermod -aG docker ec2-user
 
-          # Install uv (Python package manager)
-          curl -LsSf https://astral.sh/uv/install.sh | sh
-          export PATH="/root/.local/bin:$PATH"
-
           # Get secrets from Secrets Manager
           SECRET_ARN="${MLInternSecrets}"
           SECRETS=$(aws secretsmanager get-secret-value --secret-id $SECRET_ARN --query SecretString --output text --region ${AWS::Region})
           
           HF_TOKEN=$(echo $SECRETS | python3 -c "import sys, json; print(json.load(sys.stdin)['HF_TOKEN'])")
-          GITHUB_TOKEN=$(echo $SECRETS | python3 -c "import sys, json; print(json.load(sys.stdin)['GITHUB_TOKEN'])")
+          GITHUB_TOKEN=$(echo $SECRETS | python3 -c "import sys, json; print(json.load(sys.stdin).get('GITHUB_TOKEN', ''))")
 
           # Clone ML Intern
           cd /opt
-          git clone https://github.com/huggingface/ml-intern.git
+          git clone https://github.com/srimankatipally/ml-intern.git
           cd ml-intern
 
-          # Create .env file
-          cat > .env << EOF
-          HF_TOKEN=$HF_TOKEN
-          GITHUB_TOKEN=$GITHUB_TOKEN
+          # Create .env file (no leading spaces)
+          cat > .env <<'ENVEOF'
+          HF_TOKEN=${!HF_TOKEN}
+          GITHUB_TOKEN=${!GITHUB_TOKEN}
           AWS_DEFAULT_REGION=${AWS::Region}
-          EOF
+          ENVEOF
+          # Fix: remove leading spaces from .env
+          sed -i 's/^[[:space:]]*//' .env
 
           # Update config to use Bedrock
-          cat > configs/main_agent_config.json << EOF
+          cat > configs/main_agent_config.json <<'CONFIGEOF'
           {
             "model_name": "${BedrockModel}",
             "save_sessions": true,
@@ -306,16 +304,19 @@ Resources:
               }
             }
           }
-          EOF
+          CONFIGEOF
+          # Fix: remove leading spaces from config
+          sed -i 's/^[[:space:]]*//' configs/main_agent_config.json
 
           # Set ownership
           chown -R ec2-user:ec2-user /opt/ml-intern
 
-          # Build and run with Docker
-          docker build -t ml-intern .
+          # Build Docker image
+          echo "Building Docker image (this may take 5-10 minutes)..."
+          docker build -t ml-intern . 2>&1 | tee /var/log/docker-build.log
           
           # Create systemd service
-          cat > /etc/systemd/system/ml-intern.service << EOF
+          cat > /etc/systemd/system/ml-intern.service <<'SERVICEEOF'
           [Unit]
           Description=ML Intern Web UI
           After=docker.service
@@ -325,18 +326,15 @@ Resources:
           Type=simple
           Restart=always
           RestartSec=5
+          WorkingDirectory=/opt/ml-intern
           ExecStartPre=-/usr/bin/docker stop ml-intern
           ExecStartPre=-/usr/bin/docker rm ml-intern
-          ExecStart=/usr/bin/docker run --rm --name ml-intern \
-            -p 7860:7860 \
-            --env-file /opt/ml-intern/.env \
-            -e AWS_DEFAULT_REGION=${AWS::Region} \
-            ml-intern
+          ExecStart=/usr/bin/docker run --rm --name ml-intern -p 7860:7860 --env-file /opt/ml-intern/.env ml-intern
           ExecStop=/usr/bin/docker stop ml-intern
 
           [Install]
           WantedBy=multi-user.target
-          EOF
+          SERVICEEOF
 
           # Enable and start service
           systemctl daemon-reload
@@ -344,6 +342,7 @@ Resources:
           systemctl start ml-intern
 
           echo "ML Intern setup complete!"
+          echo "Web UI will be available at http://$(curl -s http://169.254.169.254/latest/meta-data/public-ipv4):7860"
 
   # Elastic IP for stable access
   MLInternEIP:
